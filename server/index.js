@@ -1,4 +1,5 @@
 require("dotenv").config();
+const { createClient } = require("@supabase/supabase-js");
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
@@ -39,6 +40,12 @@ const adapter = pool ? new PrismaPg(pool) : null;
 const prisma = adapter ? new PrismaClient({ adapter }) : new PrismaClient();
 
 const app = express();
+
+// --- CLIENT SUPABASE (Backend) ---
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_ANON_KEY
+);
 
 // --- CONFIGURATION BULLMQ & REDIS ---
 const redisConnection = process.env.REDIS_URL ? new IORedis(process.env.REDIS_URL, {
@@ -175,8 +182,8 @@ if (redisConnection) {
     try {
       await prisma.session.upsert({
         where: { id: sessionId },
-        create: { id: sessionId },
-        update: {},
+        create: { id: sessionId, userId: job.data.userId },
+        update: { userId: job.data.userId },
       });
 
       await prisma.document.deleteMany({
@@ -224,9 +231,46 @@ app.use(cors({
       callback(new Error('Not allowed by CORS'));
     }
   },
-  credentials: true
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(express.json());
+
+// Middleware d'authentification (Supabase Auth natif — supporte ES256 et HS256)
+const checkAuth = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    console.error("⛔ [Auth] Token Bearer manquant");
+    return res.status(401).json({ error: "Accès refusé. Token Bearer manquant." });
+  }
+  const token = authHeader.split(" ")[1];
+  try {
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data?.user) {
+      console.error("⛔ [Auth] Supabase rejet :", error?.message || "Utilisateur introuvable");
+      return res.status(401).json({ error: "Token invalide ou expiré.", details: error?.message });
+    }
+    req.user = { sub: data.user.id, email: data.user.email };
+    next();
+  } catch (err) {
+    console.error("⛔ [Auth] Erreur inattendue :", err.message);
+    return res.status(401).json({ error: "Token invalide ou expiré.", details: err.message });
+  }
+};
+
+// Route pour récupérer les sessions de l'utilisateur
+app.get("/sessions", checkAuth, async (req, res) => {
+  try {
+    const sessions = await prisma.session.findMany({
+      where: { userId: req.user.sub },
+      orderBy: { updatedAt: 'desc' }
+    });
+    res.json(sessions);
+  } catch (err) {
+    console.error("❌ Erreur /sessions :", err);
+    res.status(500).json({ error: "Impossible de récupérer les sessions." });
+  }
+});
 
 // Limitation Globale du trafic API (Toutes les routes)
 const globalLimiter = rateLimit({
@@ -320,7 +364,7 @@ async function getVectorStore() {
 }
 const uploadMiddleware = upload.array("files", 10);
 
-app.post("/upload", uploadLimiter, (req, res, next) => {
+app.post("/upload", checkAuth, uploadLimiter, (req, res, next) => {
   uploadMiddleware(req, res, function (err) {
     if (err instanceof multer.MulterError) {
       if (err.code === "LIMIT_FILE_SIZE") {
@@ -361,7 +405,8 @@ app.post("/upload", uploadLimiter, (req, res, next) => {
     // Ajout à la file d'attente Asynchrone
     const job = await uploadQueue.add('ProcessPdfJob', {
       files: fileJobs,
-      sessionId: sessionId
+      sessionId: sessionId,
+      userId: req.user.sub
     }, {
       // ✅ FIX 404 /queue : garder les jobs 5 min après completion pour que
       // le frontend puisse les lire via polling (était true = supprimé immédiatement)
@@ -418,7 +463,7 @@ app.get("/queue/:jobId", async (req, res) => {
   }
 });
 
-app.post("/chat", chatLimiter, async (req, res) => {
+app.post("/chat", checkAuth, chatLimiter, async (req, res) => {
   // Timeout serveur temporaire augmenté pour le chat (2 min)
   res.setTimeout(120000);
   try {
@@ -616,9 +661,14 @@ Ta réponse (et souviens-toi de la Règle N°2) :`;
 });
 
 // Route pour effacer l'historique d'une session
-app.delete("/history/:sessionId", async (req, res) => {
+app.delete("/history/:sessionId", checkAuth, async (req, res) => {
   const { sessionId } = req.params;
   try {
+    const session = await prisma.session.findUnique({ where: { id: sessionId } });
+    if (!session || session.userId !== req.user.sub) {
+      return res.status(403).json({ error: "Accès refusé. Cette session ne vous appartient pas." });
+    }
+
     // Supprimer tous les messages liés à cette session
     await prisma.message.deleteMany({
       where: { sessionId: sessionId },
@@ -676,9 +726,14 @@ Ne fournis que les 3 questions, sans numétration, une par ligne, sans introduct
 });
 
 // --- ROUTE POUR RECUPERER L'HISTORIQUE ---
-app.get("/history/:sessionId", async (req, res) => {
+app.get("/history/:sessionId", checkAuth, async (req, res) => {
   try {
     const { sessionId } = req.params;
+
+    const session = await prisma.session.findUnique({ where: { id: sessionId } });
+    if (session && session.userId && session.userId !== req.user.sub) {
+      return res.status(403).json({ error: "Accès refusé. Vous ne pouvez pas lire l'historique de cette session." });
+    }
 
     // Récupèration des messages triés chronologiquement
     const messages = await prisma.message.findMany({

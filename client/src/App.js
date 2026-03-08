@@ -9,11 +9,14 @@ import { ChatSkeleton } from './components/ChatSkeleton';
 import { TypingBubble } from './components/TypingBubble';
 import { ProgressBar } from './components/ProgressBar';
 import { PdfViewer } from './components/PdfViewer';
+import { supabase } from './supabaseClient';
+import Login from './components/Login';
 
 const THEME_KEY = 'pdf-chat-theme';
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:3000";
 
 function App() {
+  const [session, setSession] = useState(null);
   const { toasts, showToast, removeToast } = useToast();
   const messagesEndRef = useRef(null);
   const [files, setFiles] = useState([]);
@@ -42,7 +45,7 @@ function App() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState(null);
   const [abortController, setAbortController] = useState(null);
-  const [sessionId] = useState(() => {
+  const [sessionId, setSessionId] = useState(() => {
     let id = localStorage.getItem('pdf-chat-session-id');
     if (!id) {
       id = 'session_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
@@ -50,6 +53,8 @@ function App() {
     }
     return id;
   });
+  const [sessionsList, setSessionsList] = useState([]);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [theme, setTheme] = useState(() =>
     localStorage.getItem(THEME_KEY) ||
@@ -61,10 +66,30 @@ function App() {
     localStorage.setItem(THEME_KEY, theme);
   }, [theme]);
 
+  // Écoute de l'état d'authentification Supabase
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session) axios.defaults.headers.common['Authorization'] = `Bearer ${session.access_token}`;
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (session) {
+        axios.defaults.headers.common['Authorization'] = `Bearer ${session.access_token}`;
+      } else {
+        delete axios.defaults.headers.common['Authorization'];
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
   // Initialisation : Récupération de l'historique depuis Supabase Postgres
   useEffect(() => {
-    if (sessionId) {
-      axios.get(`${API_URL}/history/${sessionId}`)
+    if (sessionId && session) {
+      axios.get(`${API_URL}/history/${sessionId}`, {
+        headers: { Authorization: `Bearer ${session.access_token}` }
+      })
         .then(res => {
           if (res.data) {
             const serverMessages = res.data.messages || [];
@@ -96,7 +121,35 @@ function App() {
         })
         .catch(err => console.warn("Historique non accessible / inexistant :", err));
     }
-  }, [sessionId]);
+
+    if (session) {
+      axios.get(`${API_URL}/sessions`, {
+        headers: { Authorization: `Bearer ${session.access_token}` }
+      })
+        .then(res => setSessionsList(res.data || []))
+        .catch(err => console.error("Erreur charment liste sessions :", err));
+    }
+  }, [sessionId, session]);
+
+  const startNewSession = () => {
+    const id = 'session_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+    localStorage.setItem('pdf-chat-session-id', id);
+    setSessionId(id);
+    setChat([]);
+    setIndexedDocs([]);
+    setPdfReady(false);
+    setIsSidebarOpen(false);
+  };
+
+  const switchSession = (id) => {
+    if (id === sessionId) return;
+    localStorage.setItem('pdf-chat-session-id', id);
+    setSessionId(id);
+    setChat([]);
+    setIndexedDocs([]);
+    setPdfReady(false);
+    setIsSidebarOpen(false);
+  };
 
   // Sauvegarde de l'état "PDF prêt"
   useEffect(() => {
@@ -206,7 +259,9 @@ function App() {
 
     try {
       // 1. Envoi au Backend et récupération de l'ID du Job (BullMQ)
-      const res = await axios.post(`${API_URL}/upload`, formData);
+      const res = await axios.post(`${API_URL}/upload`, formData, {
+        headers: { Authorization: `Bearer ${session?.access_token}` }
+      });
 
       if (!res.data.jobId) {
         // Fallback si pas de Redis configuré, le backend agit de manière synchrone classique
@@ -220,7 +275,9 @@ function App() {
       // 2. Polling progressif (Chaque seconde)
       const interval = setInterval(async () => {
         try {
-          const statusRes = await axios.get(`${API_URL}/queue/${jobId}`);
+          const statusRes = await axios.get(`${API_URL}/queue/${jobId}`, {
+            headers: { Authorization: `Bearer ${session?.access_token}` }
+          });
           const data = statusRes.data;
 
           setUploadProgress(data.progress || 0);
@@ -312,7 +369,10 @@ function App() {
     try {
       const res = await fetch(`${API_URL}/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session?.access_token}`
+        },
         body: JSON.stringify({ question: userQuestion, sessionId }),
         signal: newController.signal
       });
@@ -424,7 +484,9 @@ function App() {
   const clearChat = async () => {
     if (window.confirm("Es-tu sûr de vouloir effacer tout l'historique de cette conversation ?")) {
       try {
-        await axios.delete(`${API_URL}/history/${sessionId}`);
+        await axios.delete(`${API_URL}/history/${sessionId}`, {
+          headers: { Authorization: `Bearer ${session?.access_token}` }
+        });
         setChat([]);
         localStorage.removeItem('pdf-chat-history');
         showToast("Historique effacé.", "success");
@@ -520,18 +582,65 @@ function App() {
     }
   };
 
+  if (!session) {
+    return (
+      <div className="App" data-theme={theme}>
+        <ToastContainer toasts={toasts} removeToast={removeToast} />
+        <Login />
+      </div>
+    );
+  }
+
   return (
     <div className="App">
       <ToastContainer toasts={toasts} removeToast={removeToast} />
 
-      <button
-        className="theme-toggle"
-        onClick={toggleTheme}
-        aria-label={theme === 'dark' ? 'Passer en mode clair' : 'Passer en mode sombre'}
-        title={theme === 'dark' ? 'Mode clair' : 'Mode sombre'}
-      >
-        {theme === 'dark' ? '☀️' : '🌙'}
-      </button>
+      <div className="top-actions-left">
+        <button className="sidebar-toggle" onClick={() => setIsSidebarOpen(true)} title="Mes conversations">
+          ☰
+        </button>
+      </div>
+
+      <div className={`sidebar ${isSidebarOpen ? 'open' : ''}`}>
+        <div className="sidebar-header">
+          <h2>Mes Conversations</h2>
+          <button className="close-sidebar" onClick={() => setIsSidebarOpen(false)}>✕</button>
+        </div>
+        <button className="new-chat-btn" onClick={startNewSession}>+ Nouvelle discussion</button>
+        <div className="sidebar-content">
+          {sessionsList.length === 0 ? (
+            <p className="no-sessions">Aucune conversation passée.</p>
+          ) : (
+            sessionsList.map(s => (
+              <div key={s.id} className={`sidebar-item ${s.id === sessionId ? 'active' : ''}`} onClick={() => switchSession(s.id)}>
+                <span className="sidebar-item-icon">💬</span>
+                <div className="sidebar-item-text">
+                  <span className="sidebar-item-date">{new Date(s.updatedAt).toLocaleDateString()} à {new Date(s.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  <span className="sidebar-item-id">Session {s.id.substring(0, 6)}</span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      <div className="top-actions">
+        <button
+          className="theme-toggle"
+          onClick={toggleTheme}
+          aria-label={theme === 'dark' ? 'Passer en mode clair' : 'Passer en mode sombre'}
+          title={theme === 'dark' ? 'Mode clair' : 'Mode sombre'}
+        >
+          {theme === 'dark' ? '☀️' : '🌙'}
+        </button>
+        <button
+          className="logout-btn"
+          onClick={() => supabase.auth.signOut()}
+          title="Se déconnecter"
+        >
+          🚪
+        </button>
+      </div>
 
       <h1 className="app-title transition-fade">Chat avec tes documents</h1>
 

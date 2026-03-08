@@ -16,6 +16,8 @@ datasource db {
 
 model Session {
   id        String     @id @default(uuid())
+  userId    String?    // ID de l'utilisateur Supabase
+  title     String?    // Optionnel: On peut donner un titre ("Tchat du 04/03")
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   messages  Message[]
@@ -39,4 +41,11 @@ model Document {
   sessionId String
   session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
+}
+
+/// Cette table est gérée par l'extension vector de PostgreSQL (utilisée par LangChain)
+/// On dit explicitement à Prisma de l'ignorer pour ne pas qu'il la supprime lors d'un db push.
+model pdf_embeddings {
+  id String @id
+  @@ignore
 }
