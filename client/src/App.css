@@ -51,12 +51,14 @@
 
 .App {
   min-height: 100vh;
-  max-width: 640px;
+  max-width: 1200px;
+  width: 100%;
   margin: 0 auto;
   padding: 2rem 1.5rem;
   display: flex;
   flex-direction: column;
   gap: 2rem;
+  box-sizing: border-box;
 }
 
 /* Toggle thème et Top Actions */
@@ -93,6 +95,14 @@
 }
 
 /* Titre */
+.user-greeting h2 {
+  font-size: 1.25rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin: 0;
+  padding-bottom: 0.5rem;
+}
+
 .app-title {
   font-size: 1.75rem;
   font-weight: 600;
@@ -426,6 +436,7 @@
   align-items: center;
   justify-content: flex-end;
   gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .clear-chat-btn,
@@ -482,6 +493,8 @@
   margin: 0;
   font-size: 0.95rem;
   line-height: 1.5;
+  word-wrap: break-word;
+  word-break: break-word;
 }
 
 .bubble-label {
@@ -1159,15 +1172,22 @@ button.citation-link:hover {
 
 /* Responsiveness for Split View */
 @media (max-width: 992px) {
+  .split-view-container {
+    height: auto !important;
+    min-height: 0 !important;
+  }
+
   .split-view-container.split-active {
-    flex-direction: column;
+    flex-direction: column !important;
   }
 
   .split-view-container.split-active .chat-section,
+  .split-view-container.split-active .pdf-section,
   .pdf-section {
-    flex: 0 0 auto;
-    width: 100%;
-    height: 500px;
+    flex: 0 0 auto !important;
+    width: 100% !important;
+    height: 500px !important;
+    min-height: 500px !important;
   }
 }
 
@@ -1207,6 +1227,7 @@ button.citation-link:hover {
   top: 0;
   left: -320px;
   width: 300px;
+  max-width: 85vw;
   height: 100vh;
   background-color: var(--bg-secondary);
   box-shadow: var(--shadow-xl);
@@ -1216,6 +1237,7 @@ button.citation-link:hover {
   flex-direction: column;
   padding: 1.5rem;
   border-right: 1px solid var(--border);
+  box-sizing: border-box;
 }
 
 .sidebar.open {

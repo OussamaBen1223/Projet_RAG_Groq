@@ -13,6 +13,7 @@ if (typeof Blob === "undefined") {
   global.Blob = Blob;
 }
 
+const Tesseract = require('tesseract.js');
 const { ChatGroq } = require("@langchain/groq");
 const { CohereClient } = require("cohere-ai");
 const cohere = new CohereClient({
@@ -80,11 +81,42 @@ if (redisConnection) {
           loader = new DocxLoader(file.path);
         } else if (ext === ".txt" || ext === ".md" || ext === ".csv") {
           loader = new TextLoader(file.path);
+        } else if (ext === ".jpg" || ext === ".jpeg" || ext === ".png") {
+          // Placeholder loader for images
+          loader = {
+            load: async () => {
+              console.log(`👁️ [OCR] Extraction de texte pour l'image ${filename}...`);
+              const { data: { text } } = await Tesseract.recognize(file.path, 'fra+ara', {
+                logger: m => console.log(`   [OCR] ${m.status} ${(m.progress * 100).toFixed(0)}%`)
+              });
+              if (!text || text.trim().length === 0) throw new Error("Aucun texte détecté dans l'image.");
+              return [{ pageContent: text, metadata: { source: filename, loc: { pageNumber: 1 } } }];
+            }
+          };
         } else {
           throw new Error(`Format non supporté : ${ext}`);
         }
 
-        const docs = await loader.load();
+        let docs = await loader.load();
+
+        // SCANNED PDF FALLBACK
+        const totalTextLength = docs.reduce((acc, doc) => acc + (doc.pageContent?.length || 0), 0);
+        if (ext === ".pdf" && totalTextLength < 100) {
+          console.log(`⚠️ [OCR] Le PDF ${filename} semble être un scan (peu de texte extrait). Passage à OCR...`);
+          docs = [];
+          // Conversion du PDF en images (array d'Uint8Array)
+          const pdfImages = await pdf2img.convert(file.path);
+          for (let pageNum = 0; pageNum < pdfImages.length; pageNum++) {
+            console.log(`👁️ [OCR] Analyse de la page ${pageNum + 1}/${pdfImages.length} de ${filename}...`);
+            const imgBuffer = Buffer.from(pdfImages[pageNum]);
+            const { data: { text } } = await Tesseract.recognize(imgBuffer, 'fra+ara');
+            if (text && text.trim().length > 0) {
+              docs.push({ pageContent: text, metadata: { source: filename, loc: { pageNumber: pageNum + 1 } } });
+            }
+          }
+          if (docs.length === 0) throw new Error("L'OCR du PDF n'a donné aucun résultat textuel exploitable.");
+        }
+
         // ✅ FIX EBUSY : on supprime le fichier APRÈS loader.load() pour éviter
         // le "resource busy or locked" sous Windows (le loader garde un handle ouvert)
         if (fs.existsSync(file.path)) {
@@ -312,12 +344,14 @@ const upload = multer({
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
       "text/plain",
       "text/markdown",
-      "text/csv"
+      "text/csv",
+      "image/jpeg",
+      "image/png"
     ];
     if (allowedMimeTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error("Format de fichier non autorisé. Seuls les PDF, DOCX, TXT, MD, et CSV sont acceptés."), false);
+      cb(new Error("Format de fichier non autorisé. Seuls les PDF, DOCX, TXT, MD, CSV, JPG et PNG sont acceptés."), false);
     }
   }
 });

@@ -11,6 +11,7 @@ import { ProgressBar } from './components/ProgressBar';
 import { PdfViewer } from './components/PdfViewer';
 import { supabase } from './supabaseClient';
 import Login from './components/Login';
+import { FcDataBackup, FcDocument, FcFile, FcFullTrash, FcLandscape, FcNightLandscape, FcLeave } from 'react-icons/fc';
 
 const THEME_KEY = 'pdf-chat-theme';
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:3000";
@@ -205,16 +206,18 @@ function App() {
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "text/plain",
         "text/markdown",
-        "text/csv"
+        "text/csv",
+        "image/jpeg",
+        "image/png"
       ];
-      const validExtensions = [".pdf", ".docx", ".txt", ".md", ".csv"];
+      const validExtensions = [".pdf", ".docx", ".txt", ".md", ".csv", ".jpg", ".jpeg", ".png"];
       const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
-      return validTypes.includes(file.type) || validExtensions.includes(ext) || file.type.startsWith("text/");
+      return validTypes.includes(file.type) || validExtensions.includes(ext) || file.type.startsWith("text/") || file.type.startsWith("image/");
     };
 
     const valid = Array.from(selectedFiles).filter(isValidFile);
     const invalid = selectedFiles.length - valid.length;
-    if (invalid > 0) showToast(`${invalid} fichier(s) ignoré(s) - formats acceptés: PDF, DOCX, TXT, MD, CSV.`, "error");
+    if (invalid > 0) showToast(`${invalid} fichier(s) ignoré(s) - formats acceptés: PDF, DOCX, TXT, MD, CSV, JPG, PNG.`, "error");
     setFiles((prev) => {
       const seen = new Set(prev.map((f) => f.name));
       const newFiles = valid.filter((f) => !seen.has(f.name));
@@ -591,6 +594,31 @@ function App() {
     );
   }
 
+  const getUserGreeting = () => {
+    if (!session || !session.user) return '';
+    const hour = new Date().getHours();
+    const greeting = hour >= 18 || hour < 5 ? 'Bonsoir' : 'Bonjour';
+
+    const metadata = session.user.user_metadata;
+    let name = 'utilisateur';
+    if (metadata?.full_name) {
+      name = metadata.full_name;
+    } else if (metadata?.name) {
+      name = metadata.name;
+    } else if (metadata?.first_name) {
+      name = `${metadata.first_name} ${metadata?.last_name || ''}`.trim();
+    } else if (session?.user?.email) {
+      name = session.user.email.split('@')[0];
+    }
+
+    // Capitalize first letter of name
+    if (name && name.length > 0) {
+      name = name.charAt(0).toUpperCase() + name.slice(1);
+    }
+
+    return `${greeting} ${name} !`;
+  };
+
   return (
     <div className="App">
       <ToastContainer toasts={toasts} removeToast={removeToast} />
@@ -631,15 +659,23 @@ function App() {
           aria-label={theme === 'dark' ? 'Passer en mode clair' : 'Passer en mode sombre'}
           title={theme === 'dark' ? 'Mode clair' : 'Mode sombre'}
         >
-          {theme === 'dark' ? '☀️' : '🌙'}
+          {theme === 'dark' ? <FcLandscape size={24} /> : <FcNightLandscape size={24} />}
         </button>
         <button
           className="logout-btn"
-          onClick={() => supabase.auth.signOut()}
+          onClick={() => {
+            if (window.confirm("Êtes-vous sûr de vouloir vous déconnecter ?")) {
+              supabase.auth.signOut();
+            }
+          }}
           title="Se déconnecter"
         >
-          🚪
+          <FcLeave size={24} />
         </button>
+      </div>
+
+      <div className="user-greeting transition-fade">
+        <h2>{getUserGreeting()}</h2>
       </div>
 
       <h1 className="app-title transition-fade">Chat avec tes documents</h1>
@@ -674,7 +710,7 @@ function App() {
               <input
                 id="file-input"
                 type="file"
-                accept=".pdf,.docx,.txt,.md,.csv,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,text/csv"
+                accept=".pdf,.docx,.txt,.md,.csv,.jpg,.jpeg,.png,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,text/csv,image/jpeg,image/png"
                 multiple
                 className="dropzone-input"
                 onChange={(e) => handleFiles(e.target.files)}
@@ -706,8 +742,8 @@ function App() {
                 <>
                   <span className="dropzone-icon">📁</span>
                   <p className="dropzone-text">
-                    <strong>Glisse tes documents ici</strong>
-                    <span>ou clique pour parcourir · PDF, DOCX, TXT, MD, CSV</span>
+                    <strong>Glisse tes documents ou images ici</strong>
+                    <span>ou clique pour parcourir · PDF, DOCX, TXT, MD, CSV, JPG, PNG</span>
                   </p>
                 </>
               )}
@@ -755,13 +791,13 @@ function App() {
           {chat.length > 0 && (
             <div className="chat-actions">
               <button type="button" className="export-chat-btn" onClick={copyChat} title="Copier le chat">
-                📋 <span>Copier</span>
+                <FcDataBackup size={20} /> <span>Copier</span>
               </button>
               <button type="button" className="export-chat-btn" onClick={exportChatTxt} title="Télécharger TXT">
-                📄 <span>TXT</span>
+                <FcDocument size={20} /> <span>TXT</span>
               </button>
               <button type="button" className="export-chat-btn" onClick={exportChatPdf} title="Télécharger PDF">
-                💾 <span>PDF</span>
+                <FcFile size={20} /> <span>PDF</span>
               </button>
               <button
                 type="button"
@@ -770,7 +806,7 @@ function App() {
                 title="Effacer la conversation en cours"
                 aria-label="Effacer la conversation"
               >
-                🗑️ <span>Effacer l'historique</span>
+                <FcFullTrash size={20} /> <span>Effacer l'historique</span>
               </button>
             </div>
           )}
