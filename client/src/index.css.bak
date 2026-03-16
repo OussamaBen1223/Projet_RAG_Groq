@@ -1,6 +1,3 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
 /* Variables de thème - Clair */
 [data-theme="light"] {
   --bg-primary: #f7f5f2;
@@ -51,4 +48,3 @@ body {
 code {
   font-family: 'JetBrains Mono', source-code-pro, Menlo, monospace;
 }
-

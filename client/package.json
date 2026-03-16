@@ -11,6 +11,7 @@
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^13.5.0",
     "axios": "^1.13.5",
+    "framer-motion": "^12.36.0",
     "jspdf": "^4.2.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
@@ -48,5 +49,10 @@
   "overrides": {
     "react": "$react",
     "react-dom": "$react-dom"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.27",
+    "postcss": "^8.5.8",
+    "tailwindcss": "^3.4.19"
   }
 }
