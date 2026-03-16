@@ -166,6 +166,7 @@ function App() {
     setIndexedDocs([]);
     setPdfReady(false);
     setIsSidebarOpen(false);
+    setFiles([]); // Vider le document importé affiche !
   };
 
   const switchSession = (id) => {
@@ -176,11 +177,12 @@ function App() {
     setIndexedDocs([]);
     setPdfReady(false);
     setIsSidebarOpen(false);
+    setFiles([]); // Vider le document importé affiche !
   };
 
   const deleteSession = async (idToDelete) => {
     try {
-      await axios.delete(`${API_URL}/history/${idToDelete}`, {
+      await axios.delete(`${API_URL}/sessions/${idToDelete}`, {
         headers: { Authorization: `Bearer ${session.access_token}` }
       });
       showToast("Conversation supprimée", "success");

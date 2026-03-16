@@ -568,18 +568,21 @@ app.post("/chat", checkAuth, chatLimiter, async (req, res) => {
       template = fs.readFileSync(path.join(__dirname, "prompt.txt"), "utf-8");
     } catch (err) {
       console.error("Impossible de lire prompt.txt. Fallback vers le système par défaut.");
-      template = `Tu es un assistant strict spécialisé dans l'analyse de documents.
-Règle N°1 : Tu DOIS répondre à la question en utilisant EXCLUSIVEMENT les informations fournies dans le texte {context}.
-Règle N°2 : Si la réponse à la question ne se trouve PAS explicitement dans le {context}, tu ne DOIS PAS essayer de deviner ni utiliser tes connaissances. Tu dois répondre EXACTEMENT par cette phrase et rien d'autre : "Je ne trouve pas cette information dans le document."
-Règle N°3 : Le texte fourni est divisé en blocs numérotés (ex: [1], [2], etc.). Quand tu utilises une information d'un bloc, tu DOIS inclure son numéro à la fin de la phrase sous cette forme : "Le ciel est bleu [1]."
+      template = `Tu es un assistant spécialisé dans l'analyse de documents.
+Instructions strictestes :
+1. Tu dois formuler ta réponse en te basant EXCLUSIVEMENT sur les informations fournies dans la section "Contexte fourni".
+2. Si l'information ne s'y trouve pas, réponds UNIQUEMENT : "Je ne trouve pas cette information dans le document fourni." N'extrapole pas et n'invente rien.
+3. Chaque paragraphe du contexte commence par un numéro (ex: [1], [2], etc.). Lorsque tu affirmes quelque chose, tu dois citer le numéro de la source à la fin de la phrase. Par exemple, au lieu de dire "La tour Eiffel fait 300 mètres", tu dois dire "La tour Eiffel fait 300 mètres [1]."
+4. Sois extrêmement direct. Ne commence JAMAIS ta réponse par des phrases comme "Je trouve cette information...", "Voici la réponse...", ou "D'après le document...". Donne la réponse directement.
+5. Ne recopie JAMAIS les exemples donnés dans ces instructions dans ta réponse finale.
 
-Texte fourni :
+Contexte fourni :
 {context}
 
 Question de l'utilisateur :
 {question}
 
-Ta réponse (et souviens-toi de la Règle N°2) :`;
+Ta réponse :`;
     }
 
     const QA_PROMPT = new PromptTemplate({
@@ -703,7 +706,7 @@ app.delete("/history/:sessionId", checkAuth, async (req, res) => {
       return res.status(403).json({ error: "Accès refusé. Cette session ne vous appartient pas." });
     }
 
-    // Supprimer tous les messages liés à cette session
+    // Supprimer tous les messages liés à cette session (clear chat)
     await prisma.message.deleteMany({
       where: { sessionId: sessionId },
     });
@@ -712,6 +715,41 @@ app.delete("/history/:sessionId", checkAuth, async (req, res) => {
   } catch (err) {
     console.error(`❌ Erreur lors de la suppression de l'historique de la session ${sessionId} :`, err);
     res.status(500).json({ error: "Erreur lors de la suppression de l'historique depuis le serveur." });
+  }
+});
+
+// Route pour supprimer complètement une session (depuis le menu)
+app.delete("/sessions/:sessionId", checkAuth, async (req, res) => {
+  const { sessionId } = req.params;
+  try {
+    const sessionToDel = await prisma.session.findUnique({ where: { id: sessionId } });
+    if (!sessionToDel || sessionToDel.userId !== req.user.sub) {
+      return res.status(403).json({ error: "Accès refusé. Cette session ne vous appartient pas." });
+    }
+
+    // 1. Supprimer les vecteurs associés
+    const store = vectorStore || (await getVectorStore());
+    if (store) {
+      try {
+        await store.pool.query(
+          `DELETE FROM "${store.tableName}" WHERE metadata->>'sessionId' = $1`,
+          [sessionId]
+        );
+      } catch (vecErr) {
+        console.error("❌ Erreur suppression vecteurs:", vecErr.message);
+      }
+    }
+
+    // 2. Supprimer la session (Cascade supprimera Messages et Documents dans Prisma)
+    await prisma.session.delete({
+      where: { id: sessionId }
+    });
+
+    console.log(`🗑️  Session ${sessionId} supprimée complètement.`);
+    res.json({ success: true, message: "Session supprimée avec succès." });
+  } catch (err) {
+    console.error(`❌ Erreur globale suppression session ${sessionId}:`, err);
+    res.status(500).json({ error: "Impossible de supprimer la session." });
   }
 });
 
