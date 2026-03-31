@@ -2,8 +2,7 @@
 
 Une plateforme métier complète de **RAG (Retrieval-Augmented Generation)** qui permet de discuter intelligemment et en temps réel avec vos documents (PDF, DOCX, TXT, CSV, Images). Le système analyse vos fichiers, "comprend" leur contenu, et utilise une IA experte pour répondre à vos questions en citant ses sources.
 
-![Screenshot de l'application]
-(./assets/Screenshot.png)
+![Screenshot de l'application](./assets/Screenshot.png)
 
 ---
 
