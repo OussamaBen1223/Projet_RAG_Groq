@@ -105,6 +105,9 @@ if (redisConnection) {
           console.log(`⚠️ [OCR] Le PDF ${filename} semble être un scan (peu de texte extrait). Passage à OCR...`);
           docs = [];
           // Conversion du PDF en images (array d'Uint8Array)
+          if (typeof pdf2img === 'undefined') {
+            throw new Error("Ce fichier est un PDF scanné (sans vrai texte). La fonctionnalité OCR pour les PDF nécessite l'installation d'outils (comme canvas), qui a échoué sur ce système Windows. Veuillez utiliser un PDF avec du texte sélectionnable.");
+          }
           const pdfImages = await pdf2img.convert(file.path);
           for (let pageNum = 0; pageNum < pdfImages.length; pageNum++) {
             console.log(`👁️ [OCR] Analyse de la page ${pageNum + 1}/${pdfImages.length} de ${filename}...`);
